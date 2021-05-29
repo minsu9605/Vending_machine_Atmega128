@@ -1,0 +1,617 @@
+#include <avr/io.h>
+
+#include <stdio.h>
+
+#include <avr/interrupt.h>
+
+#include <util/delay.h>
+
+#include "kmd128.h"
+
+#define BYTE    unsigned char
+
+#define WORD    unsigned int
+
+#define F_CPU 16000000UL
+
+#define Trigger1_ON PORTD |= 2
+
+#define Trigger1_OFF  PORTD &= ~2
+
+#define Echo1 (PINE&0x20)
+
+volatile unsigned int pulse_count=0;
+
+volatile unsigned char togle = 0;
+
+char t[3];
+
+ 
+
+
+void Lineposition(WORD i)
+
+{
+
+PORTB &= ~(_BV(0)); // command mode
+
+PORTB |= (_BV(2)); // enable high
+
+PORTC = i; // LCD 글자위치
+
+Delay_ms(2);
+
+PORTB &= ~(_BV(2)); // enable low
+
+}
+
+ 
+
+void LCD_in(WORD i)
+
+{
+
+PORTB |= (_BV(0)); // data mode
+
+PORTB |= (_BV(2)); // enable high
+
+PORTC = i; // ASCII 문자출력 “1”
+
+Delay_ms(2);
+
+PORTB &= ~(_BV(2)); // enable low
+
+}
+
+ 
+
+int get_value(void)
+{
+    ADMUX = 0x00;  //use AREF, adc channel 0
+    ADCSRA = 0xe7; //adc enable, start, free running, prescaler 128
+ 
+    while(ADCSRA&(1 << ADIF) == 0); // 변환완료 될 때까지 대기
+ 
+    return ADC; // ADC값 반환
+}
+
+
+unsigned int getEcho(char ch)
+
+ {
+
+  unsigned int range;
+
+  switch(ch){
+
+   case 0 : Trigger1_ON; Delay_us(10); Trigger1_OFF;  break;
+
+  }
+
+  switch(ch){
+
+   case 0 : while(!Echo1); TCNT1=0; TCCR1B=2; while(Echo1); break;
+
+  }
+
+  TCCR1B=8;
+
+  range=TCNT1/116;
+
+  return(range);
+
+ }
+
+ 
+
+
+ 
+
+static FILE mystdout = FDEV_SETUP_STREAM(putch, NULL,_FDEV_SETUP_WRITE);
+
+void main(){
+ 
+
+    UART1_initialize();                 // UART1 Initialize
+
+    stdout = &mystdout;      
+
+   
+
+
+    XMCRA = 0x00;
+
+    MCUCR = 0x00;
+
+    Delay_ms(2);                       
+
+
+ 
+
+
+// LCD initialize 
+
+DDRC = 0xff; // port direction as output
+
+DDRB |= _BV(0);
+
+DDRB |= _BV(1);
+
+DDRB |= _BV(2);
+
+ 
+
+ 
+
+
+PORTB &= ~(_BV(0)); // command mode
+
+PORTB &= ~(_BV(1)); // write mode
+
+PORTB &= ~(_BV(2)); // enable low
+
+Delay_ms(2); // LCD 제어를 위해 시간 지연 필요함
+
+
+ 
+
+
+// LCD function set(8 bit, 16x2 line, 5x7 dot)
+
+PORTB |= (_BV(2)); // enable high
+
+PORTC = 0x3C; // 명령 입력
+
+Delay_ms(2); // 여유 시간
+
+PORTB &= ~(_BV(2)); // enable low: 데이터나 명령을 입력하고 E를 falling edge로 클럭을 줌
+
+
+ 
+
+
+// LCD display control(display ON, cursor OFF, blink OFF)
+
+PORTB |= (_BV(2)); // enable high
+
+PORTC = 0x0C;
+
+Delay_ms(2);
+
+PORTB &= ~(_BV(2)); // enable low
+
+Delay_ms(2);
+
+
+ 
+
+
+// LCD entry mode set(increment, not shift)
+
+PORTB |= (_BV(2)); // enable high
+
+PORTC = 0x06;
+
+Delay_ms(2);
+
+PORTB &= ~(_BV(2)); // enable low
+
+// Retrun Home
+
+PORTB |= (_BV(2)); // enable high
+
+PORTC = 0x02;
+
+Delay_ms(2);
+
+PORTB &= ~(_BV(2)); // enable low
+
+
+ 
+
+
+// clear display
+
+PORTB |= (_BV(2)); // enable high
+
+PORTC = 0x01;
+
+Delay_ms(2);
+
+PORTB &= ~(_BV(2)); // enable low
+
+
+ 
+
+
+  // LCD-> MONEY 
+
+ Lineposition(0x80);
+
+    LCD_in(0x4D);   
+
+ Lineposition(0x81);
+
+    LCD_in(0x4F);
+
+ Lineposition(0x82);
+
+    LCD_in(0x4E);
+
+ Lineposition(0x83);
+
+    LCD_in(0x45);
+
+ Lineposition(0x84);
+
+    LCD_in(0x59);
+
+
+    // LCD -> WON
+
+ Lineposition(0x8B);
+
+    LCD_in(0x57);
+
+ Lineposition(0x8C);
+
+    LCD_in(0x4F);
+
+ Lineposition(0x8D);
+
+    LCD_in(0x4E);
+
+
+ 
+
+   DDRD = 0x22;
+
+   DDRE = 0x00;
+
+   DDRF = 0xff;   //F포트 출력핀으로 설정  ADC/LED/BUZER
+
+   DDRA=0xff;    // A포트 출력핀으로 설정  servo
+
+   Delay_ms(5);
+
+   EIMSK = 0x10;  //INT5 사용
+
+   EICRB = 0x03;  //rising edge일 때 인터럽트
+
+   ACSR=0x80;
+
+   SREG |=_BV(7);  //인터럽트 사용
+ 
+   TCCR1A=0;
+
+   TCCR1B=8;
+
+   Delay_ms(100);
+
+ 
+
+   int coin_count;
+
+   int coin = 0;
+
+   int ex=0;
+
+   int i=0, j=0, k=0, m=0;
+
+   unsigned int range;
+
+
+
+   while(1)
+
+   {
+
+      pulse(); 
+
+     // printf("%d\n\r",pulse_count);
+
+     coin_count = get_value();
+
+     range = getEcho(0);
+
+     Delay_ms(100);
+
+     //printf("%d \r\n", range);
+
+     // printf( "%d \r\n", coin_count );  
+
+ 
+
+    if(coin_count>0 && coin_count<13){
+
+       coin += 100;
+   
+     }
+ 
+ 
+ 
+
+
+     if(coin>200){
+ 
+           if (pulse_count < 5 && pulse_count > 0){
+
+               //서보모터 1(300원 음료수)
+               for(i=0;i<33;i++){//360 회전
+  
+                    PORTA |= _BV(0);
+                    Delay_us(1000); 
+                    PORTA &= ~(_BV(0));
+                    Delay_ms(20); //속도 제어
+  
+                }
+
+               coin = coin – 300;  //거스름돈
+
+ 
+               int N1000;  int N100; int N10; int N1;
+
+
+               N1000 = (int)coin/1000;       //LCD 금액 각 자리수
+               N100  = (int)(coin/100)%10;
+               N10  = (int)(coin/10)%10;
+               N1  = (int)coin%10;
+
+
+               //LCD 금액 표시
+               Lineposition(0x86);
+               itoa(N1000,&t[0],10);
+               LCD_in(t[0]);
+
+               Lineposition(0x87);
+               itoa(N100,&t[1],10);
+               LCD_in(t[1]);
+
+               Lineposition(0x88);
+               itoa(N10,&t[2],10);
+               LCD_in(t[2]);
+
+               Lineposition(0x89);
+               itoa(N1,&t[3],10);
+               LCD_in(t[3]);
+
+               Delay_ms(100);
+
+
+              //Buzzer 
+              PORTF |= _BV(3);  
+              Delay_ms(100);
+              PORTF &= ~(_BV(3));
+
+ 
+
+  
+              //LED 3번 깜빡거림
+              for(k=0; k<3; k++){ 
+
+                   PORTF |= _BV(2); 
+                   Delay_ms(100);
+                   PORTF &= ~(_BV(2));
+                   Delay_ms(100);
+               }
+
+                Delay_ms(50);
+
+                ex = coin/100;   //거스름돈 서보모터 몇 번 돌릴지 결정
+
+
+                for(m=0; m<ex; m++){
+
+
+                    //서보모터3(거스름돈)
+                    for(j=0; j<21; j++){//
+  
+                         PORTA |= _BV(2);
+                         Delay_us(1000); 
+                         PORTA &= ~(_BV(2));
+                         Delay_ms(50); //속도 제어
+  
+                    } 
+
+                    coin = coin – 100;
+
+                 }
+
+          }
+
+      }
+
+
+      if(coin>500){
+ 
+          if (range < 5  &&  range > 0){
+
+
+                //서보모터2(600원 음료수)
+                for(i=0;i<39;i++){//360
+  
+                     PORTA |= _BV(1);
+                     Delay_us(1000); 
+                     PORTA &= ~(_BV(1));
+                     Delay_ms(20); //속도 제어
+  
+                  } 
+
+                 coin = coin – 600;  //거스름돈
+
+ 
+ 
+                 int N1000;  int N100; int N10; int N1;
+
+
+                  N1000 = (int)coin/1000;       //LCD 금액 각 자리수
+                  N100  = (int)(coin/100)%10;
+                  N10  = (int)(coin/10)%10;
+                  N1  = (int)coin%10;
+
+
+                  //LCD 금액 표시
+                  Lineposition(0x86);
+                  itoa(N1000,&t[0],10);
+                  LCD_in(t[0]);
+
+                  Lineposition(0x87);
+                  itoa(N100,&t[1],10);
+                  LCD_in(t[1]);
+
+                  Lineposition(0x88);
+                  itoa(N10,&t[2],10);
+                  LCD_in(t[2]);
+
+                 Lineposition(0x89);
+                 itoa(N1,&t[3],10);
+                 LCD_in(t[3]);
+
+                 Delay_ms(100);
+  
+
+
+                 //Buzzer 
+                 PORTF |= _BV(3);  
+                 Delay_ms(100);
+                 PORTF &= ~(_BV(3));
+
+ 
+
+  
+                 //LED 3번 깜빡거림
+                 for(k=0; k<3; k++){ 
+
+                      PORTF |= _BV(2); 
+                      Delay_ms(100);
+                      PORTF &= ~(_BV(2));
+                      Delay_ms(100);
+                   }
+
+                  Delay_ms(50);
+
+                  ex = coin/100;   //거스름돈 서보모터 몇 번 돌릴지 결정
+
+
+                  for(m=0; m<ex; m++){
+
+
+                        //서보모터3(거스름돈)
+                        for(j=0; j<21; j++){//
+  
+                            PORTA |= _BV(2);
+                            Delay_us(1000); 
+                            PORTA &= ~(_BV(2));
+                            Delay_ms(50); //속도 제어
+  
+                         } 
+
+                         coin = coin – 100;
+
+                 }
+
+          }
+
+
+
+
+
+        int N1000;  int N100; int N10; int N1;
+
+
+         N1000 = (int)coin/1000;       //LCD 금액 각 자리수
+         N100  = (int)(coin/100)%10;
+         N10  = (int)(coin/10)%10;
+         N1  = (int)coin%10;
+
+
+          //LCD 금액 표시
+          Lineposition(0x86);
+          itoa(N1000,&t[0],10);
+          LCD_in(t[0]);
+
+          Lineposition(0x87);
+             itoa(N100,&t[1],10);
+             LCD_in(t[1]);
+
+             Lineposition(0x88);
+             itoa(N10,&t[2],10);
+             LCD_in(t[2]);
+
+             Lineposition(0x89);
+             itoa(N1,&t[3],10);
+             LCD_in(t[3]);
+
+             Delay_ms(100);
+       }
+
+}
+
+ 
+
+void pulse(void)   //10usec동안 High pulse 출력됩니다.
+
+{
+
+   PORTD |= _BV(0);   
+   Delay_us(10);
+   PORTD &= ~(_BV(0));  
+
+}
+
+ 
+
+ 
+ISR(TIMER0_OVF_vect)
+
+{
+
+   pulse_count++;   //58sec마다 1cm씩 증가 
+
+}
+
+ 
+
+
+ 
+
+ISR(INT4_vect)
+
+{
+
+        if(togle == 0) // 카운터 시작하고 인터럽트(INT4)를 다음에는 Falling Edge에서 걸리도록 함.
+
+        {
+
+                pulse_count = 0;    // 측정된 이전 거리값 초기화
+
+
+                TIMSK = 0x01; // Timer Counter 0 Enable 
+
+                TCCR0 = 0x02; // 8클럭
+
+                TCNT0 = 140;    //58us/per count
+
+                EICRB = 0x02; // EXT_int4 falling edge interrupt
+
+                togle = 1;
+
+        }
+
+        else // 카운터를 정지시키고 외부 인터럽트(INT4)를 다음에는 Riging Edge에서 걸리도록 함.
+
+        {
+
+                TIMSK = 0x00; // All Timer Disable
+
+                togle = 0;
+
+                // printf("%d\n\r",pulse_count);
+
+                EICRB = 0x03; //INt4 high_edge interrupt
+
+        }                          
+
+            
+
+}
